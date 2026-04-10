@@ -63,6 +63,7 @@ with tab_calc:
         n = st.number_input("Niños", 0, 100, 0)
         adultos, total_p = h + m, h + m + n
     with c2:
+        st.subheader("🥩 Selección")
         def fmt(n): return f"{n} {obtener_icono(n, df_p)}"
         v_s = st.multiselect("Vacuno", df_p[df_p.categoria=='VACUNO'].nombre.tolist(), format_func=fmt)
         c_s = st.multiselect("Cerdo", df_p[df_p.categoria=='CERDO'].nombre.tolist(), format_func=fmt)
