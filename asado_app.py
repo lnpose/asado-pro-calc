@@ -148,8 +148,8 @@ else:
                             "mujeres": m_s,
                             "ninos": n_s,
                             "detalle_json": rep['detalle'],
-                            "total_kg": rep['total_kg'],
-                            "user_id": st.session_state["user"].id  # VINCULACIÓN CON EL USUARIO
+                            "total_kg": rep['total_kg']
+                            # "user_id": st.session_state["user"].id  <-- QUITÁ ESTA LÍNEA
                         }
                         supabase.table("historial").insert(data_insert).execute()
                         st.success(f"✅ '{nombre_e}' guardado en tu cuenta.")
