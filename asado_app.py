@@ -147,7 +147,7 @@ else:
                             "hombres": h_s,
                             "mujeres": m_s,
                             "ninos": n_s,
-                            "detalle_json": rep['detalle'],
+                            "detalle_json": list(rep['detalle']),
                             "total_kg": rep['total_kg']
                             # "user_id": st.session_state["user"].id  <-- QUITÁ ESTA LÍNEA
                         }
