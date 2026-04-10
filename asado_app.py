@@ -63,6 +63,8 @@ if "user" not in st.session_state:
         if st.form_submit_button("Ingresar"):
             res = login_usuario(email, password)
             if res:
+                # Guardamos la sesión completa para tener el token de acceso
+                st.session_state["session"] = res.session 
                 st.session_state["user"] = res.user
                 st.rerun()
 else:
@@ -147,13 +149,21 @@ else:
                             "hombres": h_s,
                             "mujeres": m_s,
                             "ninos": n_s,
-                            "detalle_json": list(rep['detalle']),
-                            "total_kg": rep['total_kg']
-                            # "user_id": st.session_state["user"].id  <-- QUITÁ ESTA LÍNEA
+                            "detalle_json": rep['detalle'],
+                            "total_kg": rep['total_kg'],
+                            "user_id": st.session_state["user"].id
                         }
-                        supabase.table("historial").insert(data_insert).execute()
-                        st.success(f"✅ '{nombre_e}' guardado en tu cuenta.")
-                        st.cache_data.clear()
+                        
+                        # EL CAMBIO: Usamos los headers de autenticación del usuario actual
+                        try:
+                            # Forzamos al cliente a usar el token del usuario logueado
+                            supabase.postgrest.auth(st.session_state["session"].access_token)
+                            
+                            supabase.table("historial").insert(data_insert).execute()
+                            st.success(f"✅ '{nombre_e}' guardado en tu cuenta.")
+                            st.cache_data.clear()
+                        except Exception as e:
+                            st.error(f"Error técnico al guardar: {e}")
                     else:
                         st.error("Falta el nombre.")
 
