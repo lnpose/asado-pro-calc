@@ -5,24 +5,7 @@ import math
 import urllib.parse
 
 # Configuración de página
-st.set_page_config(page_title="Asado Pro Calc v2.8", layout="wide")
-
-# --- INYECCIÓN DE CSS PARA MÓVILES ---
-# Esto fuerza a que las columnas de los comensales no se apilen verticalmente
-st.markdown("""
-    <style>
-    [data-testid="column"] {
-        display: flex;
-        align-items: center;
-        justify-content: center;
-    }
-    /* Mantiene los botones y el número en una sola línea en pantallas pequeñas */
-    div[data-testid="stHorizontalBlock"] > div:has(button[key^="btn_"]) {
-        min-width: 50px !important;
-        flex: 1 1 0% !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+st.set_page_config(page_title="Asado Pro Calc v2.9", layout="wide")
 
 def get_supabase_client() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
@@ -50,11 +33,10 @@ def obtener_icono(nombre, df):
 
 # --- GESTIÓN DE ESTADO ---
 if "user" not in st.session_state: st.session_state["user"] = None
+if "session" not in st.session_state: st.session_state["session"] = None
 if "anonimo" not in st.session_state: st.session_state["anonimo"] = False
-for k in ["cant_h", "cant_m", "cant_n"]:
-    if k not in st.session_state: st.session_state[k] = 0
 
-# --- ACCESO ---
+# --- PANTALLA DE ACCESO ---
 if st.session_state["user"] is None and not st.session_state["anonimo"]:
     st.title("🔥 Bienvenido a Asado Pro")
     c_l, c_r = st.columns(2)
@@ -96,32 +78,16 @@ if st.sidebar.button("🔙 Salir / Cerrar Sesión"):
 tab_calc, tab_hist = st.tabs(["🔥 Calculadora", "📜 Historial"])
 
 with tab_calc:
-    st.title("🔥 Asado Pro Calc v2.8")
+    st.title("🔥 Asado Pro Calc v2.9")
     
     col_input_l, col_input_r = st.columns([1, 2])
     
     with col_input_l:
         st.subheader("👥 Comensales")
-        
-        def selector_horizontal(label, key):
-            st.write(f"**{label}**")
-            # Forzamos columnas de igual ancho para el layout - 0 +
-            c_btn1, c_num, c_btn2 = st.columns([1, 1, 1])
-            with c_btn1:
-                if st.button("➖", key=f"btn_min_{key}", use_container_width=True):
-                    st.session_state[key] = max(0, st.session_state[key] - 1)
-                    st.rerun()
-            with c_num:
-                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state[key]}</h3>", unsafe_allow_html=True)
-            with c_btn2:
-                if st.button("➕", key=f"btn_add_{key}", use_container_width=True):
-                    st.session_state[key] += 1
-                    st.rerun()
-            return st.session_state[key]
-
-        h = selector_horizontal("Hombres", "cant_h")
-        m = selector_horizontal("Mujeres", "cant_m")
-        n = selector_horizontal("Niños", "cant_n")
+        # Volvemos al control estándar que funciona perfecto en móviles
+        h = st.number_input("Hombres", min_value=0, max_value=100, value=0, step=1)
+        m = st.number_input("Mujeres", min_value=0, max_value=100, value=0, step=1)
+        n = st.number_input("Niños", min_value=0, max_value=100, value=0, step=1)
         total_p = h + m + n
 
     with col_input_r:
@@ -165,7 +131,6 @@ with tab_calc:
                 rep_list.append(f"{ico} {beb}: {cant}")
             
             if usa_pan:
-                # Lógica en peso (kg): Plato 150g / Sándwich 250g
                 factor_pan = 0.25 if tipo_pan == "Sándwich" else 0.15
                 peso_pan = total_p * factor_pan
                 rep_list.append(f"🥖 Pan: {peso_pan:.2f} kg")
@@ -198,6 +163,7 @@ with tab_calc:
 with tab_hist:
     if st.session_state["user"]:
         st.header("📜 Mis Asados Guardados")
+        # Forzamos refresco de historial consultando directo
         response = supabase.table("historial").select("*").order("fecha", desc=True).execute()
         hist = pd.DataFrame(response.data)
         if hist.empty:
