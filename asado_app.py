@@ -1,24 +1,32 @@
 import streamlit as st
 import pandas as pd
-import sqlite3
+from supabase import create_client, Client
 import math
 import json
 
-st.set_page_config(page_title="Asado Pro Calc v2.2", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Asado Pro Calc v2.3 (Cloud)", layout="wide")
 
-# --- CAPA DE DATOS (SQLITE) ---
-def query_db(query, params=(), commit=False):
-    conn = sqlite3.connect('asado_pro.db')
-    if commit:
-        cursor = conn.cursor()
-        cursor.execute(query, params)
-        conn.commit()
-        res = None
-    else:
-        res = pd.read_sql_query(query, conn, params=params)
-    conn.close()
-    return res
+# --- CONEXIÓN A SUPABASE ---
+# Estos datos se deben cargar preferentemente desde st.secrets por seguridad
+def get_supabase_client() -> Client:
+    url = st.secrets["SUPABASE_URL"]
+    key = st.secrets["SUPABASE_KEY"]
+    return create_client(url, key)
 
+supabase = get_supabase_client()
+
+# --- CAPA DE DATOS (LECTURA) ---
+@st.cache_data
+def cargar_productos():
+    response = supabase.table("productos").select("*").execute()
+    return pd.DataFrame(response.data)
+
+def obtener_historial():
+    response = supabase.table("historial").select("*").order("fecha", desc=True).execute()
+    return pd.DataFrame(response.data)
+
+# --- LÓGICA DE ICONOS ---
 def obtener_icono(nombre, df):
     try:
         row = df[df['nombre'] == nombre].iloc[0]
@@ -28,36 +36,33 @@ def obtener_icono(nombre, df):
         if cat == 'BEBIDA':
             n = nombre.lower()
             if "hielo" in n: return "🧊"
-            return "🍷" if any(x in n for x in ["vino", "fernet", "cerveza", "espumante"]) else "🥤"
+            return "🍷" if any(x in n for x in ["vino", "fernet", "cerveza"]) else "🥤"
     except: return "📦"
     return "📦"
 
-# Carga inicial del catálogo
-df_p = query_db("SELECT * FROM productos")
+df_p = cargar_productos()
 
-# --- NAVEGACIÓN POR TABS ---
+# --- NAVEGACIÓN ---
 tab_calc, tab_hist = st.tabs(["🔥 Calculadora", "📜 Historial de Asados"])
 
 with tab_calc:
-    st.title("🔥 Asado Pro Calc v2.2")
+    st.title("🔥 Asado Pro Calc v2.3")
     
-    # Sidebar de configuración
-    st.sidebar.header("⚙️ Ajustes Técnicos")
+    # Sidebar
+    st.sidebar.header("⚙️ Ajustes")
     g_h = st.sidebar.slider("Gramos Hombre", 300, 800, 500)
     g_m = st.sidebar.slider("Gramos Mujer", 200, 600, 400)
     g_n = st.sidebar.slider("Gramos Niño", 100, 400, 250)
-    f_h = st.sidebar.slider("% Extra Hueso", 0, 50, 25) / 100
+    f_h = st.sidebar.slider("% Hueso", 0, 50, 25) / 100
 
-    col_in1, col_in2 = st.columns(2)
-    with col_in1:
+    c1, c2 = st.columns(2)
+    with c1:
         st.subheader("👥 Comensales")
         h = st.number_input("Hombres", 0, 100, 2)
         m = st.number_input("Mujeres", 0, 100, 2)
         n = st.number_input("Niños", 0, 100, 0)
         adultos, total_p = h + m, h + m + n
-    
-    with col_in2:
-        st.subheader("🥩 Selección")
+    with c2:
         def fmt(n): return f"{n} {obtener_icono(n, df_p)}"
         v_s = st.multiselect("Vacuno", df_p[df_p.categoria=='VACUNO'].nombre.tolist(), format_func=fmt)
         c_s = st.multiselect("Cerdo", df_p[df_p.categoria=='CERDO'].nombre.tolist(), format_func=fmt)
@@ -65,15 +70,13 @@ with tab_calc:
         a_s = st.multiselect("Achuras", df_p[df_p.categoria=='ACHURA'].nombre.tolist(), format_func=fmt)
         b_s = st.multiselect("Bebidas", df_p[df_p.categoria=='BEBIDA'].nombre.tolist(), format_func=fmt)
 
-    # Lógica de cálculo al presionar el botón
     if st.button("🚀 GENERAR REPORTE"):
         items_c = v_s + c_s + p_s
         if not (items_c or a_s or b_s):
             st.warning("Seleccioná productos.")
         else:
-            # Procesamiento de datos
             gr_netos = (h * g_h) + (m * g_m) + (n * g_n)
-            lista_final = []
+            lista_f = []
             t_kg = 0
             
             if items_c:
@@ -82,66 +85,57 @@ with tab_calc:
                     row = df_p[df_p.nombre == nom].iloc[0]
                     peso = (gr_i/1000) * ((1+f_h) if row.tiene_hueso else 1)
                     t_kg += peso
-                    lista_final.append(f"- **{nom} {obtener_icono(nom, df_p)}:** {peso:.2f} kg")
+                    lista_f.append(f"- **{nom} {obtener_icono(nom, df_p)}:** {peso:.2f} kg")
             
-            for ach in a_s: lista_final.append(f"- **{ach} 🍖:** {total_p} unidades")
+            for ach in a_s: lista_f.append(f"- **{ach} 🍖:** {total_p} unidades")
             for beb in b_s:
                 ico = obtener_icono(beb, df_p)
                 if ico == "🧊": cant = f"{total_p} kg"
                 elif ico == "🍷": cant = f"{math.ceil(adultos/(12 if 'Fernet' in beb else 2.5))} botellas"
                 else: cant = f"{total_p*1.25:.1f} L"
-                lista_final.append(f"- **{beb} {ico}:** {cant}")
+                lista_f.append(f"- **{beb} {ico}:** {cant}")
 
-            # GUARDADO EN MEMORIA DE SESIÓN
-            st.session_state['reporte_activo'] = {
-                'detalle': lista_final,
-                'total_kg': t_kg,
-                'params': (h, m, n)
-            }
+            st.session_state['reporte'] = {'detalle': lista_f, 'total_kg': t_kg, 'params': (h, m, n)}
 
-    # MOSTRAR REPORTE SI EXISTE EN SESIÓN
-    if 'reporte_activo' in st.session_state:
-        rep = st.session_state['reporte_activo']
+    if 'reporte' in st.session_state:
+        rep = st.session_state['reporte']
         st.markdown("---")
         r1, r2 = st.columns(2)
         with r1:
             st.write("### 🛒 Lista de Compra")
             for line in rep['detalle']: st.write(line)
         with r2:
-            st.metric("Total Carne Estimado", f"{rep['total_kg']:.2f} kg")
-            
-            # --- FORMULARIO DE GUARDADO ---
-            st.subheader("💾 Guardar en Historial")
-            nombre_e = st.text_input("Nombre del evento:", placeholder="Ej: Asado con los pibes")
-            if st.button("Confirmar Guardado"):
+            st.metric("Total Carne", f"{rep['total_kg']:.2f} kg")
+            st.subheader("💾 Guardar Asado")
+            nombre_e = st.text_input("Nombre del evento:")
+            if st.button("Confirmar Guardado en la Nube"):
                 if nombre_e:
                     h_s, m_s, n_s = rep['params']
-                    query_db(
-                        "INSERT INTO historial (nombre_evento, hombres, mujeres, ninos, detalle_json, total_kg) VALUES (?,?,?,?,?,?)",
-                        (nombre_e, h_s, m_s, n_s, json.dumps(rep['detalle']), rep['total_kg']),
-                        commit=True
-                    )
-                    st.success(f"✅ Evento '{nombre_e}' guardado localmente.")
-                    # Opcional: limpiar sesión después de guardar
-                    # del st.session_state['reporte_activo']
+                    data_insert = {
+                        "nombre_evento": nombre_e,
+                        "hombres": h_s,
+                        "mujeres": m_s,
+                        "ninos": n_s,
+                        "detalle_json": rep['detalle'], # Supabase maneja JSON directo
+                        "total_kg": rep['total_kg']
+                    }
+                    supabase.table("historial").insert(data_insert).execute()
+                    st.success(f"✅ '{nombre_e}' guardado permanentemente en Supabase.")
+                    st.cache_data.clear() # Limpiamos caché para ver el nuevo registro
                 else:
-                    st.error("⚠️ Falta el nombre del evento.")
+                    st.error("Falta el nombre.")
 
 with tab_hist:
-    st.header("📜 Historial Registrado")
-    historial = query_db("SELECT * FROM historial ORDER BY fecha DESC")
-    
-    if historial.empty:
-        st.info("No hay asados en la base de datos.")
+    st.header("📜 Historial en Supabase")
+    hist = obtener_historial()
+    if hist.empty:
+        st.info("No hay asados guardados.")
     else:
-        for _, row in historial.iterrows():
-            with st.expander(f"📅 {row['fecha']} | {row['nombre_evento']}"):
+        for _, row in hist.iterrows():
+            with st.expander(f"📅 {row['fecha'][:10]} | {row['nombre_evento']}"):
                 st.write(f"**Comensales:** {row['hombres']}H / {row['mujeres']}M / {row['ninos']}N")
-                st.write(f"**Carne total:** {row['total_kg']:.2f} kg")
-                st.write("**Detalle:**")
-                detalles = json.loads(row['detalle_json'])
-                for d in detalles: st.write(d)
-                
-                if st.button("Eliminar Registro", key=f"del_{row['id']}"):
-                    query_db("DELETE FROM historial WHERE id = ?", (int(row['id']),), commit=True)
+                for d in row['detalle_json']: st.write(d)
+                if st.button("Eliminar", key=f"del_{row['id']}"):
+                    supabase.table("historial").delete().eq("id", row['id']).execute()
+                    st.cache_data.clear()
                     st.rerun()
