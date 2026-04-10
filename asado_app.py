@@ -4,14 +4,32 @@ from supabase import create_client, Client
 import math
 import urllib.parse
 
-st.set_page_config(page_title="Asado Pro Calc v2.7", layout="wide")
+# Configuración de página
+st.set_page_config(page_title="Asado Pro Calc v2.8", layout="wide")
+
+# --- INYECCIÓN DE CSS PARA MÓVILES ---
+# Esto fuerza a que las columnas de los comensales no se apilen verticalmente
+st.markdown("""
+    <style>
+    [data-testid="column"] {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+    }
+    /* Mantiene los botones y el número en una sola línea en pantallas pequeñas */
+    div[data-testid="stHorizontalBlock"] > div:has(button[key^="btn_"]) {
+        min-width: 50px !important;
+        flex: 1 1 0% !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
 def get_supabase_client() -> Client:
     return create_client(st.secrets["SUPABASE_URL"], st.secrets["SUPABASE_KEY"])
 
 supabase = get_supabase_client()
 
-# --- APOYO ---
+# --- FUNCIONES DE APOYO ---
 @st.cache_data
 def cargar_productos():
     res = supabase.table("productos").select("*").execute()
@@ -30,7 +48,7 @@ def obtener_icono(nombre, df):
     except: return "📦"
     return "📦"
 
-# --- ESTADO ---
+# --- GESTIÓN DE ESTADO ---
 if "user" not in st.session_state: st.session_state["user"] = None
 if "anonimo" not in st.session_state: st.session_state["anonimo"] = False
 for k in ["cant_h", "cant_m", "cant_n"]:
@@ -62,6 +80,7 @@ if st.session_state["user"] is None and not st.session_state["anonimo"]:
 # --- APP PRINCIPAL ---
 df_p = cargar_productos()
 
+# Sidebar: Ajustes Técnicos
 st.sidebar.header("⚙️ Ajustes Técnicos")
 g_h = st.sidebar.slider("Gramos Hombre", 300, 800, 500)
 g_m = st.sidebar.slider("Gramos Mujer", 200, 600, 400)
@@ -77,7 +96,7 @@ if st.sidebar.button("🔙 Salir / Cerrar Sesión"):
 tab_calc, tab_hist = st.tabs(["🔥 Calculadora", "📜 Historial"])
 
 with tab_calc:
-    st.title("🔥 Asado Pro Calc v2.7")
+    st.title("🔥 Asado Pro Calc v2.8")
     
     col_input_l, col_input_r = st.columns([1, 2])
     
@@ -86,15 +105,18 @@ with tab_calc:
         
         def selector_horizontal(label, key):
             st.write(f"**{label}**")
-            # Usamos columnas pequeñas para forzar el layout horizontal - 0 +
-            c_btn1, c_num, c_btn2 = st.columns([0.5, 0.6, 0.5])
-            if c_btn1.button("➖", key=f"btn_min_{key}"):
-                st.session_state[key] = max(0, st.session_state[key] - 1)
-                st.rerun()
-            c_num.write(f"### {st.session_state[key]}")
-            if c_btn2.button("➕", key=f"btn_add_{key}"):
-                st.session_state[key] += 1
-                st.rerun()
+            # Forzamos columnas de igual ancho para el layout - 0 +
+            c_btn1, c_num, c_btn2 = st.columns([1, 1, 1])
+            with c_btn1:
+                if st.button("➖", key=f"btn_min_{key}", use_container_width=True):
+                    st.session_state[key] = max(0, st.session_state[key] - 1)
+                    st.rerun()
+            with c_num:
+                st.markdown(f"<h3 style='text-align: center; margin: 0;'>{st.session_state[key]}</h3>", unsafe_allow_html=True)
+            with c_btn2:
+                if st.button("➕", key=f"btn_add_{key}", use_container_width=True):
+                    st.session_state[key] += 1
+                    st.rerun()
             return st.session_state[key]
 
         h = selector_horizontal("Hombres", "cant_h")
@@ -143,7 +165,7 @@ with tab_calc:
                 rep_list.append(f"{ico} {beb}: {cant}")
             
             if usa_pan:
-                # Lógica en peso (kg)
+                # Lógica en peso (kg): Plato 150g / Sándwich 250g
                 factor_pan = 0.25 if tipo_pan == "Sándwich" else 0.15
                 peso_pan = total_p * factor_pan
                 rep_list.append(f"🥖 Pan: {peso_pan:.2f} kg")
@@ -158,12 +180,12 @@ with tab_calc:
         
         texto_wa = "🔥 *Reporte Asado Pro*\n" + "\n".join(rep['detalle'])
         wa_url = f"https://api.whatsapp.com/send?text={urllib.parse.quote(texto_wa)}"
-        st.markdown(f'<a href="{wa_url}" target="_blank" style="background-color: #25D366; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold;">📲 Enviar por WhatsApp</a>', unsafe_allow_html=True)
+        st.markdown(f'<a href="{wa_url}" target="_blank" style="background-color: #25D366; color: white; padding: 12px 24px; text-decoration: none; border-radius: 8px; display: inline-block; font-weight: bold; text-align: center; width: 100%;">📲 Enviar por WhatsApp</a>', unsafe_allow_html=True)
 
         if st.session_state["user"]:
             st.markdown("---")
             n_ev = st.text_input("Nombre del evento:")
-            if st.button("💾 Guardar Asado"):
+            if st.button("💾 Guardar Asado", use_container_width=True):
                 if n_ev:
                     h_s, m_s, n_s = rep['params']
                     data = {"nombre_evento": n_ev, "hombres": h_s, "mujeres": m_s, "ninos": n_s, "detalle_json": rep['detalle'], "total_kg": rep['total_kg'], "user_id": st.session_state["user"].id}
@@ -172,4 +194,22 @@ with tab_calc:
                     st.success("Guardado en historial.")
                     st.cache_data.clear()
                 else: st.error("Falta nombre.")
-# ... (Tab historial se mantiene igual)
+
+with tab_hist:
+    if st.session_state["user"]:
+        st.header("📜 Mis Asados Guardados")
+        response = supabase.table("historial").select("*").order("fecha", desc=True).execute()
+        hist = pd.DataFrame(response.data)
+        if hist.empty:
+            st.info("Aún no tienes asados guardados.")
+        else:
+            for _, row in hist.iterrows():
+                with st.expander(f"📅 {row['fecha'][:10]} | {row['nombre_evento']}"):
+                    st.write(f"**Comensales:** {row['hombres']}H / {row['mujeres']}M / {row['ninos']}N")
+                    for d in row['detalle_json']: st.write(d)
+                    if st.button("Eliminar", key=f"del_{row['id']}"):
+                        supabase.table("historial").delete().eq("id", row['id']).execute()
+                        st.cache_data.clear()
+                        st.rerun()
+    else:
+        st.info("Logueate para acceder al historial.")
